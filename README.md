@@ -1,15 +1,25 @@
-# Cyclic peptide design: ProteinMPNN + ESMFold2
+# Cyclic Peptide Design with ProteinMPNN + ESMFold2
 
-This repository is a modern, minimal rewrite of the old C05/Rosetta protocol.
+This repository is a modernized example for designing and screening cyclic peptides from a supplied cyclic backbone. The original repository captured a 2020 Rosetta-centered protocol; the active workflow has been replaced with a smaller, easier-to-follow pipeline based on **ProteinMPNN** for sequence design and **ESMFold2** for structure prediction.
 
-The workflow is:
+The current workflow is:
 
-1. Start from a **pre-built cyclic-peptide backbone** in PDB format.
-2. Use the official **ProteinMPNN** implementation to design amino-acid sequences for that backbone.
-3. Fold each designed sequence with **ESMFold2**.
-4. Score the predictions using mean pLDDT and the head-to-tail peptide-bond distance.
+```text
+cyclic backbone PDB
+        │
+        ▼
+   ProteinMPNN
+        │
+        │ candidate sequences
+        ▼
+     ESMFold2
+        │
+        │ predicted structures
+        ▼
+ cyclic-closure + confidence checks
+```
 
-The old Rosetta XML/flags, Amber/tleap scripts, MD scripts, PyEMMA analysis, and generated trajectory tooling are intentionally removed from the main workflow. The historical protocol PDF is kept under `docs/archive/`.
+This repository is intended as a **design and triage example**, not as a claim of experimental validation. A short terminal distance or high model confidence does not establish binding, stability, permeability, or biological activity.
 
 ## Repository layout
 
@@ -32,24 +42,47 @@ The old Rosetta XML/flags, Amber/tleap scripts, MD scripts, PyEMMA analysis, and
 └── README.md
 ```
 
-## 1. Install
+Legacy Rosetta XML/flags/resfiles, Amber/tleap setup, molecular-dynamics scripts, PyEMMA analysis, and generated trajectory utilities are no longer part of the active example. The historical protocol is retained only as an archived reference under `docs/archive/`.
 
-ProteinMPNN and ESMFold2 are intentionally external model repositories rather than vendored into this example.
+## Requirements
+
+The example expects a working Python environment with PyTorch and the dependencies used by the wrapper scripts. ProteinMPNN and ESMFold2 are kept as external projects rather than vendored into this repository.
+
+### ProteinMPNN
+
+Clone the upstream ProteinMPNN repository next to this repository:
 
 ```bash
 git clone https://github.com/dauparas/ProteinMPNN.git external/ProteinMPNN
-python -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install pyyaml gemmi torch transformers
+```
+
+ProteinMPNN provides the `protein_mpnn_run.py` command used by `scripts/design_with_proteinmpnn.py`.
+
+### ESMFold2
+
+Install the current Biohub ESM package so that the local ESMFold2 API is available:
+
+```bash
 pip install "esm @ git+https://github.com/Biohub/esm.git@main"
 ```
 
-ProteinMPNN's official implementation exposes `protein_mpnn_run.py` and supports a single input PDB with `--pdb_path` and `--pdb_path_chains`. citeturn960788search0
+The exact model weights and runtime requirements depend on the ESMFold2 model variant you select. The wrapper accepts a model identifier rather than downloading or vendoring model weights into this repository.
 
-ESMFold2's current local workflow uses `ESMFold2Model` plus `ESMFold2InputBuilder`; the model can write an mmCIF structure from the resulting molecular complex. citeturn457844search0turn206872search3
+## 1. Start from a cyclic backbone
+
+The example input is:
+
+```text
+examples/input/c05_cyclic_backbone.pdb
+```
+
+The backbone must already contain the intended cyclic geometry. ProteinMPNN designs amino-acid identities from the supplied coordinates; it does not create a cyclic backbone or perform Rosetta-style relaxation.
+
+For a new design campaign, replace the example PDB with your own cyclic backbone and keep the geometry fixed while generating sequence variants.
 
 ## 2. Design sequences with ProteinMPNN
+
+Run the repository wrapper rather than invoking ProteinMPNN's Python entry point manually:
 
 ```bash
 python scripts/design_with_proteinmpnn.py \
@@ -61,11 +94,21 @@ python scripts/design_with_proteinmpnn.py \
   --seed 42
 ```
 
-The wrapper calls the upstream `protein_mpnn_run.py` directly and leaves its generated FASTA files in `outputs/mpnn/seqs/`.
+The wrapper forwards the backbone and design parameters to the upstream `protein_mpnn_run.py` interface and preserves the generated FASTA files under `outputs/mpnn/`.
 
-ProteinMPNN designs the sequence from the supplied backbone coordinates. It does not create a new backbone or perform Rosetta-style relaxation; the cyclic geometry therefore needs to be present in the input PDB before sequence design. This is deliberate: sequence design and structure prediction are kept as separate, inspectable stages. citeturn960788search0
+Recommended practice for a campaign is to record:
 
-## 3. Fold designed sequences with ESMFold2
+- backbone file and checksum,
+- ProteinMPNN commit/version,
+- random seed,
+- sampling temperature,
+- number of sequences requested.
+
+These values determine the reproducibility of the sequence-design stage.
+
+## 3. Predict structures with ESMFold2
+
+Fold the generated sequences with ESMFold2:
 
 ```bash
 python scripts/fold_with_esmfold2.py \
@@ -77,17 +120,19 @@ python scripts/fold_with_esmfold2.py \
   --num-diffusion-samples 1
 ```
 
-The current ESMFold2 stack supports `StructurePredictionInput` and explicit `CovalentBond` objects, so the example can tell the model that the peptide is cyclic instead of pretending that the terminal residues are an ordinary open chain. citeturn206872search2turn206872search4
-
-The example encodes the normal cyclic peptide closure as:
+The wrapper uses the current local ESMFold2 input API and represents the cyclic peptide closure explicitly with a `CovalentBond` between the terminal backbone atoms:
 
 ```text
-chain A, residue 0, atom N  <->  chain A, last residue, atom C
+N of residue 1  <->  C of the final residue
 ```
 
-For standard protein residues in ESMFold2, the backbone heavy-atom order starts with N, CA, C, O, so the example uses atom indices 0 and 2 for the closure bond. citeturn171300search0
+This is preferable to treating the sequence as an ordinary open-chain peptide when the purpose of the prediction is to inspect a cyclic topology.
 
-## 4. Evaluate the folds
+The output directory contains the predicted structures and metadata needed by the evaluation step.
+
+## 4. Evaluate cyclic closure and confidence
+
+Run:
 
 ```bash
 python scripts/evaluate_cyclic_predictions.py \
@@ -95,32 +140,45 @@ python scripts/evaluate_cyclic_predictions.py \
   --json outputs/esmfold2/summary.json
 ```
 
-The evaluator reports:
+The evaluator reports, where available:
 
-- mean pLDDT when present in the ESMFold2 result,
-- terminal N–C distance for the cyclic peptide bond,
-- a simple pass/fail closure flag (`<= 2.0 Å` by default).
+- mean pLDDT,
+- terminal backbone N–C distance,
+- a simple cyclic-closure pass/fail flag.
 
-A good closure distance is a geometry check, not a guarantee of biological activity or experimental success. For real design campaigns, inspect the structures and use an independent validation pipeline as well.
+The default closure threshold is intentionally conservative as a **screening heuristic**, not a physical acceptance criterion. Inspect individual structures rather than ranking candidates from one scalar alone.
 
-## Design notes
+## Suggested screening workflow
 
-The original repository mixed Rosetta cyclization, resfile editing, constrained relaxation, molecular dynamics, trajectory analysis, and one-off shell utilities in the repository root. The rewrite intentionally removes those legacy steps instead of preserving two competing workflows.
-
-The recommended modern loop is:
+For a small design set:
 
 ```text
-cyclic backbone
-      │
-      ▼
-ProteinMPNN
-      │  many sequences
-      ▼
-ESMFold2 (+ cyclic bond)
-      │
-      ├── confidence
-      ├── head-to-tail closure
-      └── manual/independent structural review
+1. Build or select a cyclic backbone
+2. Generate sequence diversity with ProteinMPNN
+3. Predict each sequence with ESMFold2
+4. Reject obviously poor folds
+5. Check head-to-tail closure geometry
+6. Inspect top candidates manually
+7. Apply an independent structural/energetic validation pipeline
 ```
 
-For a large campaign, keep the backbone set immutable, record the random seed and MPNN temperature, and save every generated sequence together with the ESMFold2 configuration used to score it.
+For larger campaigns, keep the backbone set immutable, save every generated FASTA sequence, and store the exact ProteinMPNN and ESMFold2 configuration used for each prediction.
+
+## Configuration
+
+`configs/example.yaml` contains the parameters used by the example. It is intentionally small so that the design choices are visible rather than hidden inside a large workflow framework.
+
+## Historical protocol
+
+The archived PDF in `docs/archive/` documents the original C05 cyclic-peptide protocol described in the historical literature. It is retained for provenance and comparison only; it is **not** the recommended implementation for this repository.
+
+## Limitations
+
+The current example deliberately stops at sequence design, structure prediction, and basic screening. It does not claim to replace:
+
+- experimental synthesis and characterization,
+- independent molecular mechanics or free-energy calculations,
+- explicit-solvent molecular dynamics,
+- receptor-binding or functional assays.
+
+Those tools can be added downstream when a project requires them, without reintroducing the old Rosetta-specific workflow into the core example.
