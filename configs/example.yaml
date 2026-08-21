@@ -1,0 +1,12 @@
+protein_mpnn: external/ProteinMPNN
+backbone: examples/input/c05_cyclic_backbone.pdb
+output_dir: outputs
+num_sequences: 32
+temperature: 0.1
+seed: 42
+esmfold2:
+  model: biohub/ESMFold2-Fast
+  num_loops: 3
+  num_sampling_steps: 50
+  num_diffusion_samples: 1
+closure_distance_cutoff_angstrom: 2.0

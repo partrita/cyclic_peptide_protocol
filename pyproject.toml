@@ -1,0 +1,13 @@
+[project]
+name = "cyclic-peptide-protocol"
+version = "0.1.0"
+description = "Modern cyclic peptide sequence-design and structure-prediction example using ProteinMPNN and ESMFold2"
+requires-python = ">=3.10"
+dependencies = [
+  "gemmi>=0.7.3",
+  "pyyaml>=6.0.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
