@@ -1,0 +1,11 @@
+# generated outputs
+outputs/
+
+# external model repositories
+external/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
